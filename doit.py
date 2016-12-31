@@ -17,8 +17,6 @@ from tornado.options import define, options
 
 define("port", default=5000, help="run on the given port", type=int)
 
-names = ['Carolyn', 'Hannah', 'Vanessa']
-
 humans_file = os.path.join(os.path.dirname(__file__), 'static', 'humans.txt')
 ideas_file = os.path.join(os.path.dirname(__file__), 'ideas.txt')
 ideas = {}
@@ -28,21 +26,55 @@ with open(ideas_file) as ideas_input:
     for line in ideas_input.readlines():
         ideas[md5(line).hexdigest()] = line
 
-def fill_line(idea):
-    idea = idea.replace('XNAMEX', random.choice(names))
-    idea = idea.replace('XLOWERNAMEX', random.choice(names).lower())
-    return idea
+class WeightedRandomizer:
+    def __init__ (self, weights):
+        self.__max = .0
+        self.__weights = []
+        for value, weight in weights.items():
+            self.__max += weight
+            self.__weights.append((self.__max, value))
+
+    def random (self):
+        r = random.random() * self.__max
+        for ceil, value in self.__weights:
+            if ceil > r: return value
 
 class MainHandler(tornado.web.RequestHandler):
     def get(self, idea_hash=None):
         if not idea_hash:
-            idea_hash = random.choice(ideas.keys())
+            # idea_hash = random.choice(ideas.keys())
+            idea_hash = self.rand_idea()
         elif idea_hash not in ideas:
             raise tornado.web.HTTPError(404)
 
-        idea = fill_line(ideas[idea_hash])
+        idea = self.format_line(ideas[idea_hash])
 
         self.output_idea(idea, idea_hash)
+
+    def weight_for(self, line):
+        if line.startswith('X '):
+            return 1.0
+        if line.startswith('(A) '):
+            return 100.0
+        if line.startswith('(B) '):
+            return 50.0
+        return 10.0
+
+    def rand_idea(self):
+        w = {}
+        for idea_hash, idea_line in ideas.items():
+                weight = self.weight_for(idea_line)
+                w[idea_hash] = weight
+                # print '{0} ({1}) - {2}'.format(idea_hash, weight, idea_line)
+        wr = WeightedRandomizer(w)
+        return wr.random()
+
+    def format_line(self, idea):
+        idea = re.sub('^X ', '', idea)
+        idea = re.sub('^\(A\) ', '', idea)
+        idea = re.sub('^\(B\) ', '', idea)
+        idea = re.sub('^\(C\) ', '', idea)
+        return idea
 
     def output_idea(self, idea, idea_hash):
         self.render('index.html', idea=idea, idea_hash=idea_hash)
